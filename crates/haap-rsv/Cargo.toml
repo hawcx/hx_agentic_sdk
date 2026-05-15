@@ -18,6 +18,7 @@ haap-substrate-reader = { workspace = true }
 haap-core = { workspace = true }
 haap-wire = { workspace = true }
 haap-crypto = { workspace = true }
+haap-redis = { workspace = true }
 tokio = { workspace = true }
 redis = { workspace = true }
 lru = { workspace = true }

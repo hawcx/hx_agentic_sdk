@@ -1,67 +1,143 @@
-//! Two-tier replay store: in-process LRU + Redis SETNX with TTL.
+//! Replay enforcement for the RSV cascade.
+//!
+//! The cascade's `ReplayCheck` trait is synchronous (precheck +
+//! consume). This crate ships two impls:
+//!
+//! - `InMemReplayCheck`: in-process HashSet of consumed jtis.
+//!   Useful for unit tests where Redis isn't desired.
+//! - `RedisReplayCheck`: sync Redis SETNX via
+//!   `redis::Client::get_connection`. Mirrors hx_labs's
+//!   `replay_adapter::RedisReplayCheck` pattern so the SDK doesn't
+//!   take a dep on haap-server (which has many other concerns).
+//!
+//! Both use `haap_redis::replay_key_v070` for byte-identical key
+//! naming (`hawcx:replay:{session_id}:{jti_hex}`).
 
-use lru::LruCache;
-use redis::aio::ConnectionManager;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
-use std::time::Duration;
+use haap_core::ReplayCheck;
+use haap_redis::replay_key_v070;
+use redis::Commands;
+use std::collections::HashSet;
 use thiserror::Error;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Error)]
 pub enum ReplayError {
-    #[error("jti already consumed (in-process LRU)")]
-    AlreadySeenLocally,
-    #[error("jti already consumed (Redis SETNX returned 0)")]
-    AlreadySeenDistributed,
     #[error("redis transport: {0}")]
     Redis(String),
 }
 
-#[derive(Clone)]
-pub struct ReplayStore {
-    lru: Arc<Mutex<LruCache<[u8; 22], ()>>>,
-    redis: ConnectionManager,
+// ── In-memory impl (tests + dev) ──────────────────────────────────────
+
+pub struct InMemReplayCheck {
+    consumed: HashSet<[u8; 16]>,
 }
 
-impl ReplayStore {
-    pub fn new(redis: ConnectionManager, lru_capacity: usize) -> Self {
+impl InMemReplayCheck {
+    pub fn new() -> Self {
         Self {
-            lru: Arc::new(Mutex::new(LruCache::new(
-                NonZeroUsize::new(lru_capacity).unwrap_or(NonZeroUsize::new(1024).unwrap()),
-            ))),
-            redis,
+            consumed: HashSet::new(),
         }
     }
+}
 
-    /// Try to atomically consume a jti. Returns Ok if the jti is fresh;
-    /// returns AlreadySeen* if previously consumed.
-    pub async fn try_consume(&self, jti: &[u8; 22], ttl: Duration) -> Result<(), ReplayError> {
-        {
-            let lru = self.lru.lock().await;
-            if lru.contains(jti) {
-                return Err(ReplayError::AlreadySeenLocally);
-            }
-        }
+impl Default for InMemReplayCheck {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        let key = format!("haap:jti:{}", std::str::from_utf8(jti).unwrap_or("?"));
-        let mut conn = self.redis.clone();
-        let setnx: redis::Value = redis::cmd("SET")
+impl ReplayCheck for InMemReplayCheck {
+    fn replay_precheck(&mut self, _session_id: u64, jti: &[u8; 16]) -> Result<bool, String> {
+        Ok(self.consumed.contains(jti))
+    }
+
+    fn replay_consume(
+        &mut self,
+        _session_id: u64,
+        jti: &[u8; 16],
+        _ttl_secs: u64,
+    ) -> Result<bool, String> {
+        Ok(self.consumed.insert(*jti))
+    }
+}
+
+// ── Redis-backed impl (production) ────────────────────────────────────
+
+pub struct RedisReplayCheck {
+    conn: redis::Connection,
+}
+
+impl RedisReplayCheck {
+    pub fn new(conn: redis::Connection) -> Self {
+        Self { conn }
+    }
+}
+
+impl ReplayCheck for RedisReplayCheck {
+    fn replay_precheck(&mut self, session_id: u64, jti: &[u8; 16]) -> Result<bool, String> {
+        let key = replay_key_v070(session_id, jti);
+        self.conn
+            .exists::<_, bool>(&key)
+            .map_err(|e| format!("redis replay precheck: {e}"))
+    }
+
+    fn replay_consume(
+        &mut self,
+        session_id: u64,
+        jti: &[u8; 16],
+        ttl_secs: u64,
+    ) -> Result<bool, String> {
+        let key = replay_key_v070(session_id, jti);
+        redis::cmd("SET")
             .arg(&key)
             .arg("1")
-            .arg("EX")
-            .arg(ttl.as_secs())
             .arg("NX")
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| ReplayError::Redis(e.to_string()))?;
+            .arg("EX")
+            .arg(ttl_secs)
+            .query(&mut self.conn)
+            .map_err(|e| format!("redis replay consume: {e}"))
+    }
+}
 
-        if !matches!(setnx, redis::Value::Okay) {
-            return Err(ReplayError::AlreadySeenDistributed);
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        let mut lru = self.lru.lock().await;
-        lru.put(*jti, ());
-        Ok(())
+    #[test]
+    fn in_mem_precheck_initially_false() {
+        let mut r = InMemReplayCheck::new();
+        let jti = [0u8; 16];
+        assert!(!r.replay_precheck(1, &jti).unwrap());
+    }
+
+    #[test]
+    fn in_mem_consume_first_call_returns_true() {
+        let mut r = InMemReplayCheck::new();
+        let jti = [1u8; 16];
+        assert!(r.replay_consume(1, &jti, 60).unwrap());
+    }
+
+    #[test]
+    fn in_mem_replay_consume_second_call_returns_false() {
+        let mut r = InMemReplayCheck::new();
+        let jti = [2u8; 16];
+        assert!(r.replay_consume(1, &jti, 60).unwrap());
+        assert!(!r.replay_consume(1, &jti, 60).unwrap());
+    }
+
+    #[test]
+    fn in_mem_precheck_after_consume_returns_true() {
+        let mut r = InMemReplayCheck::new();
+        let jti = [3u8; 16];
+        r.replay_consume(1, &jti, 60).unwrap();
+        assert!(r.replay_precheck(1, &jti).unwrap());
+    }
+
+    #[test]
+    fn different_jti_independent() {
+        let mut r = InMemReplayCheck::new();
+        let jti1 = [4u8; 16];
+        let jti2 = [5u8; 16];
+        r.replay_consume(1, &jti1, 60).unwrap();
+        assert!(!r.replay_precheck(1, &jti2).unwrap());
     }
 }
