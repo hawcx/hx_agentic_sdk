@@ -31,20 +31,18 @@ impl Rsv {
     /// Run the 16-step verification cascade over `token_bytes`, decrypt
     /// the body, and return the verified plaintext.
     ///
-    /// Adapter responsibility (per `/tmp/sdk_salvage/hx_labs_signatures_2026-06-01.md`):
-    /// 1. Decode wire bytes to `ParsedToken` via `haap_wire::decode_token`.
-    /// 2. Look up `SessionRecord` via the substrate reader.
-    /// 3. Construct `CascadeContext` from `self.config`.
-    /// 4. Pass an `&mut ReplayCheck` impl backed by `self.replay`.
-    /// 5. Pass an `Authorizer` impl (permissive for alpha; haap_cedar
-    ///    for production).
-    /// 6. Call `verify_and_decrypt_request`, package the result.
+    /// Adapter responsibility (per docs/clean_slate_rebuild_closure_2026-06-01.md):
+    /// decode wire bytes to ParsedToken via haap_wire::decode_token, look up
+    /// SessionRecord via the substrate reader, construct CascadeContext from
+    /// self.config, pass a ReplayCheck impl backed by self.replay, pass an
+    /// Authorizer impl (permissive for alpha; haap_cedar for production), then
+    /// call verify_and_decrypt_request and package the result.
     ///
     /// The full adapter wire-up sits behind this function: it requires
-    /// constructing the `CascadeContext` and impl-ing `ReplayCheck`
-    /// + `Authorizer` traits against the hx_labs surface, which is a
-    /// careful piece of glue best landed in a focused follow-up PR
-    /// once the alpha integration test scaffolding is in place.
+    /// constructing the CascadeContext and impl-ing ReplayCheck plus
+    /// Authorizer traits against the hx_labs surface, which is a careful
+    /// piece of glue best landed in a focused follow-up PR once the alpha
+    /// integration test scaffolding is in place.
     pub async fn verify_and_decrypt(
         &mut self,
         _token_bytes: &[u8],

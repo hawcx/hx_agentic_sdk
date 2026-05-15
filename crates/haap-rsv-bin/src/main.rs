@@ -1,13 +1,13 @@
 //! `haap-rsv` HTTP API binary — sidecar for cross-language MCP servers.
 //!
 //! Endpoints:
-//! - `POST /verify` { "token_b64": "..." }
-//!     → 200 { "plaintext_b64": "...", "session_id": <u64>, "jti_hex": "...", "verification_handle": "uuid" }
-//!     → 401 { "error": "..." }
-//! - `POST /encrypt-response` { "verification_handle": "uuid", "plaintext_b64": "..." }
-//!     → 200 { "ciphertext_b64": "..." }
-//!     → 404 if handle expired (30s TTL)
-//! - `GET /healthz`  → 200 "ok"
+//!
+//! - `POST /verify` accepts `{ "token_b64": "..." }` and returns either 200
+//!   `{ "plaintext_b64": "...", "session_id": <u64>, "jti_hex": "...", "verification_handle": "uuid" }`
+//!   or 401 `{ "error": "..." }`.
+//! - `POST /encrypt-response` accepts `{ "verification_handle": "uuid", "plaintext_b64": "..." }`
+//!   and returns 200 `{ "ciphertext_b64": "..." }` or 404 if the handle expired (30s TTL).
+//! - `GET /healthz` returns 200 `"ok"`.
 
 use anyhow::Result;
 use axum::{routing::{get, post}, Json, Router};
@@ -19,11 +19,19 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+#[allow(dead_code)]
+struct CachedHandle {
+    response_key: [u8; 32],
+    session_id: u64,
+    expires_at_unix: u64,
+}
+
+type HandleCache = Arc<Mutex<std::collections::HashMap<Uuid, CachedHandle>>>;
+
 #[derive(Clone)]
 struct AppState {
     rsv: Arc<Mutex<Rsv>>,
-    // verification_handle → (response_key bytes, session_id, expires_at_unix)
-    handles: Arc<Mutex<std::collections::HashMap<Uuid, ([u8; 32], u64, u64)>>>,
+    handles: HandleCache,
 }
 
 #[tokio::main]
@@ -108,9 +116,15 @@ async fn verify_handler(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let mut handles = state.handles.lock().await;
-    handles.insert(handle, (*verified.response_key, verified.session_id, now + 30));
-    // GC any expired handles to bound memory.
-    handles.retain(|_, (_, _, exp)| *exp >= now);
+    handles.insert(
+        handle,
+        CachedHandle {
+            response_key: *verified.response_key,
+            session_id: verified.session_id,
+            expires_at_unix: now + 30,
+        },
+    );
+    handles.retain(|_, h| h.expires_at_unix >= now);
 
     Ok(Json(VerifyResp {
         plaintext_b64: base64::engine::general_purpose::STANDARD.encode(&verified.plaintext_body),
@@ -158,7 +172,7 @@ async fn encrypt_response_handler(
         })?;
 
     let handles = state.handles.lock().await;
-    let (_response_key, _session_id, _exp) = handles.get(&handle).copied().ok_or((
+    let _cached = handles.get(&handle).ok_or((
         axum::http::StatusCode::NOT_FOUND,
         Json(ErrorResp {
             error: "verification handle not found (expired or never created)".into(),
