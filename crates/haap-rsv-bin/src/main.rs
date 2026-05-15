@@ -60,10 +60,34 @@ async fn main() -> Result<()> {
     let listen = std::env::var("HAAP_RSV_LISTEN").unwrap_or_else(|_| "127.0.0.1:8443".into());
     let addr: SocketAddr = listen.parse()?;
 
+    warn_if_non_loopback(&addr);
+
     tracing::info!(%addr, "haap-rsv HTTP API listening");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+/// Whether a non-loopback listen address should trigger the startup warning.
+///
+/// Extracted so the predicate is unit-testable without a tracing
+/// subscriber. The supported alpha deployment pattern is loopback-only;
+/// any other binding implies the operator has placed `haap-rsv` behind
+/// a TLS-terminating reverse proxy.
+fn should_warn_non_loopback(addr: &SocketAddr) -> bool {
+    !addr.ip().is_loopback()
+}
+
+fn warn_if_non_loopback(addr: &SocketAddr) {
+    if should_warn_non_loopback(addr) {
+        tracing::warn!(
+            ip = %addr.ip(),
+            "haap-rsv listening on non-loopback address without TLS. \
+             This is appropriate for sidecar deployments behind a TLS-terminating \
+             reverse proxy. Direct network exposure of this endpoint without TLS \
+             is not supported. See docs/RSV_HTTP_API.md for the threat model."
+        );
+    }
 }
 
 #[derive(Deserialize)]
@@ -194,3 +218,37 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
+#[cfg(test)]
+mod listen_addr_tests {
+    use super::*;
+
+    #[test]
+    fn loopback_v4_does_not_warn() {
+        let addr: SocketAddr = "127.0.0.1:8443".parse().unwrap();
+        assert!(!should_warn_non_loopback(&addr));
+    }
+
+    #[test]
+    fn loopback_v6_does_not_warn() {
+        let addr: SocketAddr = "[::1]:8443".parse().unwrap();
+        assert!(!should_warn_non_loopback(&addr));
+    }
+
+    #[test]
+    fn unspecified_v4_warns() {
+        let addr: SocketAddr = "0.0.0.0:8443".parse().unwrap();
+        assert!(should_warn_non_loopback(&addr));
+    }
+
+    #[test]
+    fn unspecified_v6_warns() {
+        let addr: SocketAddr = "[::]:8443".parse().unwrap();
+        assert!(should_warn_non_loopback(&addr));
+    }
+
+    #[test]
+    fn lan_address_warns() {
+        let addr: SocketAddr = "10.0.0.5:8443".parse().unwrap();
+        assert!(should_warn_non_loopback(&addr));
+    }
+}
