@@ -898,6 +898,7 @@ dependencies = [
  "bincode",
  "clap",
  "haap-rsv",
+ "haap-sdk-ipc",
  "haap-sdk-sealer",
  "haap-sdk-types",
  "haap-substrate-reader",

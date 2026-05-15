@@ -26,3 +26,11 @@ serde_json = { workspace = true }
 hex = { workspace = true }
 uuid = { workspace = true }
 bincode = { workspace = true }
+
+[dev-dependencies]
+haap-sdk-ipc = { workspace = true }
+haap-sdk-types = { workspace = true }
+haap-supervisor = { workspace = true }
+haap-rsv = { workspace = true }
+haap-substrate-reader = { workspace = true }
+anyhow = { workspace = true }
