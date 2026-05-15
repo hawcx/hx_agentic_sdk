@@ -6,8 +6,10 @@
 //!
 //! Target latency: < 400 μs per spec.
 
+pub mod authorizer;
 pub mod replay;
 pub mod rsv;
 
-pub use replay::{ReplayError, ReplayStore};
+pub use authorizer::PermissiveAuthorizer;
+pub use replay::{InMemReplayCheck, RedisReplayCheck, ReplayError};
 pub use rsv::Rsv;
