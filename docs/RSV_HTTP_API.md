@@ -8,28 +8,53 @@ cascade as a sidecar.
 
 ### `POST /verify`
 
-Verify a token + decrypt the request body.
+Verify a token and optionally decrypt the request body.
 
 **Request:**
 
 ```json
 {
-  "token_b64": "<base64 of wire-format token bytes>"
+  "token_b64": "<base64 of wire-format token bytes>",
+  "encrypted_request_b64": "<optional base64 of encrypted body>",
+  "request_aad_b64": "<optional base64 of AAD>"
 }
 ```
+
+Field rules:
+
+- `token_b64` is required.
+- `encrypted_request_b64` and `request_aad_b64` are optional but
+  must be paired — both present together, or both omitted.
+  Asymmetric presence is a client error.
+
+Field naming conventions (see `crates/haap-rsv-bin/src/lib.rs`):
+`*_b64` = base64 STANDARD (RFC 4648 §4); `*_hex` = lowercase hex.
 
 **Response (200):**
 
 ```json
 {
-  "plaintext_b64": "<base64 of decrypted body>",
+  "plaintext_b64": "<base64 of decrypted body, empty if no body was supplied>",
   "session_id": 1234567890,
-  "jti_hex": "<22-byte base64url JTI as hex string>",
+  "jti_hex": "<32-char hex of raw 16-byte JTI>",
   "verification_handle": "<UUID v4>"
 }
 ```
 
+**Response (400):**
+
+Returned for malformed JSON, invalid base64 in any `*_b64` field, or
+asymmetric presence of `encrypted_request_b64` / `request_aad_b64`.
+
+```json
+{
+  "error": "encrypted_request_b64 and request_aad_b64 must be provided together or both omitted"
+}
+```
+
 **Response (401):**
+
+Returned when the cascade rejects the token (any `CascadeRejectReason`).
 
 ```json
 {
@@ -39,6 +64,31 @@ Verify a token + decrypt the request body.
 
 The `verification_handle` is cached in-memory for 30 seconds and is
 required to call `/encrypt-response`.
+
+**Example — token-only verification:**
+
+```bash
+curl -X POST http://127.0.0.1:8443/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"token_b64": "AAEC...truncated"}'
+```
+
+**Example — token plus encrypted body:**
+
+```bash
+curl -X POST http://127.0.0.1:8443/verify \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "token_b64": "AAEC...truncated",
+    "encrypted_request_b64": "X4z...truncated",
+    "request_aad_b64": "YWQ..."
+  }'
+```
+
+Schema evolution: new optional fields may be added without breaking
+existing clients; existing field names and types are stable contract
+for alpha-2 and beyond. Removed fields will be marked deprecated for
+at least one alpha cycle before removal.
 
 ### `POST /encrypt-response`
 
