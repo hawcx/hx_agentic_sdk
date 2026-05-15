@@ -1,0 +1,77 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/haap-sdk-types",
+    "crates/haap-sdk-ipc",
+    "crates/haap-sdk-sealer",
+    "crates/haap-substrate-reader",
+    "crates/haap-authenticator",
+    "crates/haap-tqs",
+    "crates/haap-assembler",
+    "crates/haap-rsv",
+    "crates/haap-supervisor",
+    "crates/haap-sdk-cli",
+]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Hawcx Inc."]
+repository = "https://github.com/hawcx/hx_agentic_sdk"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Path-deps to hx_labs (declared per prompt + 4 additions per Phase 0 findings)
+haap-core = { path = "../hx_labs/crates/haap-core", default-features = false }
+haap-crypto = { path = "../hx_labs/crates/haap-crypto" }
+haap-ipc = { path = "../hx_labs/crates/haap-ipc" }
+haap-auth = { path = "../hx_labs/crates/haap-auth" }
+haap-wire = { path = "../hx_labs/crates/haap-wire" }
+haap-keystore = { path = "../hx_labs/crates/haap-keystore" }
+haap-redis = { path = "../hx_labs/crates/haap-redis" }
+haap-as-client = { path = "../hx_labs/crates/haap-as-client" }
+
+# SDK-internal crates (referenced via workspace = true)
+haap-sdk-types = { path = "crates/haap-sdk-types" }
+haap-sdk-ipc = { path = "crates/haap-sdk-ipc" }
+haap-sdk-sealer = { path = "crates/haap-sdk-sealer" }
+haap-substrate-reader = { path = "crates/haap-substrate-reader" }
+haap-authenticator = { path = "crates/haap-authenticator" }
+haap-tqs = { path = "crates/haap-tqs" }
+haap-assembler = { path = "crates/haap-assembler" }
+haap-rsv = { path = "crates/haap-rsv" }
+haap-supervisor = { path = "crates/haap-supervisor" }
+
+# External
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1.3"
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+hex = "0.4"
+zeroize = { version = "1", features = ["derive"] }
+async-trait = "0.1"
+bytes = "1"
+once_cell = "1"
+lru = "0.12"
+
+# Sealer
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+keyring = "3"
+rand = "0.8"
+
+# IPC + UDS
+nix = { version = "0.27", features = ["socket", "fs", "user"] }
+libc = "0.2"
+
+# Redis (customer substrate)
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }

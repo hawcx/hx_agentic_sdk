@@ -1,0 +1,32 @@
+[package]
+name = "haap-assembler"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "haap-assembler"
+path = "src/main.rs"
+
+[lib]
+name = "haap_assembler"
+path = "src/lib.rs"
+
+[dependencies]
+haap-sdk-types = { workspace = true }
+haap-sdk-ipc = { workspace = true }
+haap-core = { workspace = true }
+haap-wire = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+bincode = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+zeroize = { workspace = true }
+async-trait = { workspace = true }
+hex = { workspace = true }

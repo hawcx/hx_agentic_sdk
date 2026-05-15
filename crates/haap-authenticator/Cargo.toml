@@ -1,0 +1,38 @@
+[package]
+name = "haap-authenticator"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "haap-authenticator"
+path = "src/main.rs"
+
+[lib]
+name = "haap_authenticator"
+path = "src/lib.rs"
+
+[dependencies]
+haap-sdk-types = { workspace = true }
+haap-sdk-ipc = { workspace = true }
+haap-sdk-sealer = { workspace = true }
+haap-core = { workspace = true }
+haap-auth = { workspace = true }
+haap-keystore = { workspace = true }
+haap-as-client = { workspace = true }
+haap-ipc = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+zeroize = { workspace = true }
+hex = { workspace = true }
+async-trait = { workspace = true }
