@@ -85,22 +85,45 @@ jobs:
           fi
         shell: bash
 
-      - name: Stage hx_labs inside hx_agentic_sdk for cross visibility
+      - name: Stage hx_labs inside SDK workspace for cross visibility
         if: matrix.cross
         shell: bash
         run: |
-          # Copy hx_labs INTO hx_agentic_sdk so cross's container sees it
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          
+          echo "=== Filesystem layout ==="
+          pwd
+          ls -la
+          
+          echo "=== Existing path-deps in SDK (before staging) ==="
+          grep -rn 'path.*hx_labs' hx_agentic_sdk/Cargo.toml \
+              hx_agentic_sdk/crates/*/Cargo.toml 2>/dev/null || \
+              echo "(no path-deps to hx_labs found)"
+          
+          echo "=== Copying hx_labs into SDK workspace ==="
           cp -r hx_labs hx_agentic_sdk/_hx_labs_vendored
-    
-          # Replace path = "../hx_labs/..." with path = "_hx_labs_vendored/..." in SDK Cargo.tomls
-          find hx_agentic_sdk -name Cargo.toml -exec \
-          sed -i.bak 's|path = "\.\./hx_labs/|path = "_hx_labs_vendored/|g' {} \;
-    
-          # Show what was changed (for log visibility)
-          echo "=== Modified path-deps ==="
-          grep -rn 'path = "_hx_labs_vendored"' hx_agentic_sdk/Cargo.toml \
-           hx_agentic_sdk/crates/*/Cargo.toml 2>/dev/null | head -10
-
+          
+          echo "=== Rewriting path-deps with sed ==="
+          find hx_agentic_sdk -name 'Cargo.toml' \
+              -not -path '*/_hx_labs_vendored/*' -exec \
+              sed -i.bak -E 's|path[[:space:]]*=[[:space:]]*"(\.\./)+hx_labs/|path = "_hx_labs_vendored/|g' {} \;
+          
+          echo "=== Path-deps after rewriting (expect _hx_labs_vendored references) ==="
+          grep -rn 'path.*_hx_labs_vendored' hx_agentic_sdk/Cargo.toml \
+              hx_agentic_sdk/crates/*/Cargo.toml 2>/dev/null || \
+              echo "(no rewritten path-deps found; investigate)"
+          
+          echo "=== Remaining ../hx_labs references (should be none) ==="
+          if grep -rn 'path.*\.\./hx_labs' hx_agentic_sdk/Cargo.toml \
+              hx_agentic_sdk/crates/*/Cargo.toml 2>/dev/null; then
+              echo "WARNING: residual ../hx_labs references found above"
+              exit 1
+          else
+              echo "(no remaining ../hx_labs references; good)"
+          fi
+          
+          echo "=== Staging complete ==="
 
       - name: Build SDK binaries
         working-directory: hx_agentic_sdk
