@@ -5,7 +5,15 @@
 # arranges this; for local builds run `docker build -f hx_agentic_sdk/Dockerfile .`
 # from the parent directory containing both repos.
 
-FROM rust:1.75 AS builder
+FROM rust:1.85-slim-bookworm AS builder
+
+# Install build dependencies (protoc for tonic-generated code)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        protobuf-compiler \
+        pkg-config \
+        libssl-dev \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
@@ -16,10 +24,10 @@ COPY hx_agentic_sdk /build/hx_agentic_sdk
 # Build hx_labs binaries.
 WORKDIR /build/hx_labs
 RUN cargo build --release \
-    --bin haap-auth-bin \
-    --bin haap-tqs-precompute-bin \
-    --bin haap-tqs-jit-bin \
-    --bin haap-assembler-bin \
+    --bin haap-authenticator \
+    --bin haap-tqs-precompute \
+    --bin haap-tqs-jit \
+    --bin haap-assembler \
     --bin haap-supervisor
 
 # Build SDK binaries.
@@ -29,10 +37,10 @@ RUN cargo build --release --bin haap-rsv --bin haap-sdk
 # Distroless runtime.
 FROM gcr.io/distroless/cc-debian12
 
-COPY --from=builder /build/hx_labs/target/release/haap-auth-bin /usr/local/bin/
-COPY --from=builder /build/hx_labs/target/release/haap-tqs-precompute-bin /usr/local/bin/
-COPY --from=builder /build/hx_labs/target/release/haap-tqs-jit-bin /usr/local/bin/
-COPY --from=builder /build/hx_labs/target/release/haap-assembler-bin /usr/local/bin/
+COPY --from=builder /build/hx_labs/target/release/haap-authenticator /usr/local/bin/
+COPY --from=builder /build/hx_labs/target/release/haap-tqs-precompute /usr/local/bin/
+COPY --from=builder /build/hx_labs/target/release/haap-tqs-jit /usr/local/bin/
+COPY --from=builder /build/hx_labs/target/release/haap-assembler /usr/local/bin/
 COPY --from=builder /build/hx_labs/target/release/haap-supervisor /usr/local/bin/
 COPY --from=builder /build/hx_agentic_sdk/target/release/haap-rsv /usr/local/bin/
 COPY --from=builder /build/hx_agentic_sdk/target/release/haap-sdk /usr/local/bin/
