@@ -1,0 +1,124 @@
+# HAAP local evaluation bundle.
+#
+# Spins up:
+#   - caa-admin-auth: holds IK_c, runs the Admin Authenticator process
+#   - caa: Admin Orchestrator (gRPC AdminControlPlane surface to AS)
+#   - rsv: Resource Server Verifier (HTTP token verification endpoint)
+#   - redis: replay-protection store for RSV
+#
+# Architecture notes:
+#   - CAA is two processes (admin-auth + orchestrator) connected by a Unix
+#     domain socket. They share /var/run/hawcx via the named volume `caa_ipc`.
+#   - Both base images are distroless (no shell). Healthchecks are disabled;
+#     the host-side smoke-test.sh probes TCP ports instead.
+#   - Postgres is NOT used; CAA persists state in a file directory.
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env — at minimum, provide HAWCX_ORG_ID, HAWCX_IK_C, HAAP_AUDIENCE_HASH,
+#   # and HAAP_SEALER_PASSPHRASE before the services can actually function.
+#   docker compose up
+#
+# For production deployments, see [link to production-deployment docs] (TBD v0.2).
+
+name: hawcx-haap-eval
+
+services:
+  caa-admin-auth:
+    image: ghcr.io/hawcx/hx-caa:${HAAP_VERSION:-v0.1.0-alpha.1}
+    container_name: hawcx-caa-admin-auth
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/haap-admin-auth"]
+    environment:
+      - HAWCX_ORG_ID=${HAWCX_ORG_ID}
+      - HAWCX_IK_C=${HAWCX_IK_C}
+      - HAAP_ADMIN_AUTH_IPC_PATH=/var/run/hawcx/admin-control.sock
+      - HAAP_ADMIN_AUTH_SESSION_TTL=${HAAP_ADMIN_AUTH_SESSION_TTL:-3600}
+      - HAAP_CAA_STATE_DIR=/var/lib/haap/caa
+      - HAAP_PRODUCTION_MODE=${HAAP_PRODUCTION_MODE:-false}
+      - RUST_LOG=${LOG_LEVEL:-info}
+    volumes:
+      - caa_ipc:/var/run/hawcx
+      - caa_state:/var/lib/haap/caa
+    healthcheck:
+      disable: true
+    networks:
+      - hawcx-net
+
+  caa:
+    image: ghcr.io/hawcx/hx-caa:${HAAP_VERSION:-v0.1.0-alpha.1}
+    container_name: hawcx-caa
+    restart: unless-stopped
+    environment:
+      - HAWCX_ORG_ID=${HAWCX_ORG_ID}
+      - HAAP_CAA_PRINCIPAL_ID=${HAAP_CAA_PRINCIPAL_ID:-}
+      - HAAP_CAA_GRPC_LISTEN_ADDR=0.0.0.0:9443
+      - HAAP_CAA_STATE_DIR=/var/lib/haap/caa
+      - HAAP_ADMIN_AUTH_IPC_PATH=/var/run/hawcx/admin-control.sock
+      - HAAP_AS_URL=${HAAP_AS_URL:-https://agent-auth.hawcx.com}
+      - HAAP_BOOTSTRAP_OTRC=${HAAP_BOOTSTRAP_OTRC:-}
+      - HAAP_CAA_K_ADMIN_SESSION_HEX=${HAAP_CAA_K_ADMIN_SESSION_HEX:-}
+      - HAAP_PRODUCTION_MODE=${HAAP_PRODUCTION_MODE:-false}
+      - RUST_LOG=${LOG_LEVEL:-info}
+    ports:
+      - "${CAA_GRPC_PORT:-9443}:9443"
+    depends_on:
+      caa-admin-auth:
+        condition: service_started
+    volumes:
+      - caa_ipc:/var/run/hawcx
+      - caa_state:/var/lib/haap/caa
+    healthcheck:
+      disable: true
+    networks:
+      - hawcx-net
+
+  rsv:
+    image: ghcr.io/hawcx/hx-agent-sdk:${HAAP_VERSION:-v0.1.0-alpha.1}
+    container_name: hawcx-rsv
+    restart: unless-stopped
+    # Override SDK image's default entrypoint (haap-supervisor) to run RSV instead.
+    entrypoint: ["/usr/local/bin/haap-rsv"]
+    environment:
+      - HAAP_RSV_LISTEN=0.0.0.0:8443
+      - HAAP_AUDIENCE_HASH=${HAAP_AUDIENCE_HASH}
+      - HAAP_CUSTOMER_REDIS_URL=redis://redis:6379
+      - HAAP_REPLAY_LRU_CAPACITY=${HAAP_REPLAY_LRU_CAPACITY:-10000}
+      - HAAP_SEALER_BACKEND=file
+      - HAAP_SEALER_FILE_PATH=/var/lib/haap/rsv/k_rs.sealed
+      - HAAP_SEALER_PASSPHRASE_ENV=HAAP_SEALER_PASSPHRASE
+      - HAAP_SEALER_PASSPHRASE=${HAAP_SEALER_PASSPHRASE}
+      - RUST_LOG=${LOG_LEVEL:-info}
+    ports:
+      - "${RSV_PORT:-8443}:8443"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - rsv_state:/var/lib/haap/rsv
+    healthcheck:
+      disable: true
+    networks:
+      - hawcx-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: hawcx-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - hawcx-net
+
+networks:
+  hawcx-net:
+    driver: bridge
+
+volumes:
+  caa_ipc:
+  caa_state:
+  rsv_state:
