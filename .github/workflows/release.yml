@@ -114,26 +114,26 @@ jobs:
           name: hx-agent-sdk-${{ matrix.target }}
           path: dist/*
 
-     - name: Stage Docker binaries (flat layout)
-       if: contains(matrix.target, 'linux-gnu')
-       shell: bash
-       run: |
-         mkdir -p docker-staging
-         cp hx_labs/target/${{ matrix.target }}/release/haap-authenticator docker-staging/
-         cp hx_labs/target/${{ matrix.target }}/release/haap-tqs-precompute docker-staging/
-         cp hx_labs/target/${{ matrix.target }}/release/haap-tqs-jit docker-staging/
-         cp hx_labs/target/${{ matrix.target }}/release/haap-assembler docker-staging/
-         cp hx_labs/target/${{ matrix.target }}/release/haap-supervisor docker-staging/
-         cp hx_agentic_sdk/target/${{ matrix.target }}/release/haap-rsv docker-staging/
-         cp hx_agentic_sdk/target/${{ matrix.target }}/release/haap-sdk docker-staging/
-         ls -la docker-staging/
+      - name: Stage Docker binaries (flat layout)
+        if: contains(matrix.target, 'linux-gnu')
+        shell: bash
+        run: |
+          mkdir -p docker-staging
+          cp hx_labs/target/${{ matrix.target }}/release/haap-authenticator docker-staging/
+          cp hx_labs/target/${{ matrix.target }}/release/haap-tqs-precompute docker-staging/
+          cp hx_labs/target/${{ matrix.target }}/release/haap-tqs-jit docker-staging/
+          cp hx_labs/target/${{ matrix.target }}/release/haap-assembler docker-staging/
+          cp hx_labs/target/${{ matrix.target }}/release/haap-supervisor docker-staging/
+          cp hx_agentic_sdk/target/${{ matrix.target }}/release/haap-rsv docker-staging/
+          cp hx_agentic_sdk/target/${{ matrix.target }}/release/haap-sdk docker-staging/
+          ls -la docker-staging/
 
-    - name: Upload Linux binaries for Docker (linux only)
-      if: contains(matrix.target, 'linux-gnu')
-      uses: actions/upload-artifact@v4
-      with:
-        name: docker-bins-${{ matrix.target }}
-        path: docker-staging/
+      - name: Upload Linux binaries for Docker (linux only)
+        if: contains(matrix.target, 'linux-gnu')
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-bins-${{ matrix.target }}
+          path: docker-staging/
 
   docker:
     name: docker ${{ matrix.platform }}
