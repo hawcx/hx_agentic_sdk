@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1.7
+
+# Copy-only Dockerfile. No compilation; binaries come from the workflow's
+# matrix build job. Drastically faster than rebuilding from source.
+#
+# The build context expects ./prebuilt-bins/ to contain the binaries
+# downloaded from the build job's artifact.
+
+FROM gcr.io/distroless/cc-debian12
+
+LABEL org.opencontainers.image.source="https://github.com/hawcx/hx_agentic_sdk"
+LABEL org.opencontainers.image.description="HAAP SDK runtime (haap-rsv, haap-sdk, hx_labs supervisor toolkit)"
+
+COPY prebuilt-bins/haap-authenticator   /usr/local/bin/
+COPY prebuilt-bins/haap-tqs-precompute  /usr/local/bin/
+COPY prebuilt-bins/haap-tqs-jit         /usr/local/bin/
+COPY prebuilt-bins/haap-assembler       /usr/local/bin/
+COPY prebuilt-bins/haap-supervisor      /usr/local/bin/
+COPY prebuilt-bins/haap-rsv             /usr/local/bin/
+COPY prebuilt-bins/haap-sdk             /usr/local/bin/
+
+# Default entrypoint = supervisor (most common customer-side deployment).
+ENTRYPOINT ["/usr/local/bin/haap-supervisor"]

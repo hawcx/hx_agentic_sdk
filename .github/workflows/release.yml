@@ -55,6 +55,19 @@ jobs:
           version: '25.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Cache cargo registry + target dirs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            hx_labs/target/
+            hx_agentic_sdk/target/
+          key: cargo-${{ matrix.target }}-${{ hashFiles('hx_labs/**/Cargo.lock', 'hx_agentic_sdk/**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.target }}-
+
       - name: Build hx_labs binaries
         working-directory: hx_labs
         run: |
@@ -95,32 +108,54 @@ jobs:
             tar -czf "dist/$OUT.tar.gz" "$OUT"
           fi
 
-      - name: Upload distribution artifact
+      - name: Upload distribution artifact (release asset)
         uses: actions/upload-artifact@v4
         with:
           name: hx-agent-sdk-${{ matrix.target }}
           path: dist/*
 
+      - name: Upload Linux binaries for Docker (linux only)
+        if: contains(matrix.target, 'linux-gnu')
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-bins-${{ matrix.target }}
+          path: |
+            hx_labs/target/${{ matrix.target }}/release/haap-authenticator
+            hx_labs/target/${{ matrix.target }}/release/haap-tqs-precompute
+            hx_labs/target/${{ matrix.target }}/release/haap-tqs-jit
+            hx_labs/target/${{ matrix.target }}/release/haap-assembler
+            hx_labs/target/${{ matrix.target }}/release/haap-supervisor
+            hx_agentic_sdk/target/${{ matrix.target }}/release/haap-rsv
+            hx_agentic_sdk/target/${{ matrix.target }}/release/haap-sdk
+
   docker:
-    name: docker multi-arch
-    runs-on: ubuntu-latest
+    name: docker ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch_suffix: amd64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch_suffix: arm64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout hx_agentic_sdk
         uses: actions/checkout@v4
-        with:
-          path: hx_agentic_sdk
 
-      - name: Checkout hx_labs (sibling)
-        uses: actions/checkout@v4
+      - name: Download pre-built Linux binaries
+        uses: actions/download-artifact@v4
         with:
-          repository: hawcx/hx_labs
-          token: ${{ secrets.HX_LABS_READ_TOKEN }}
-          path: hx_labs
-          ref: main
+          name: docker-bins-${{ matrix.target }}
+          path: ./prebuilt-bins
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Make binaries executable
+        run: chmod +x ./prebuilt-bins/*
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -132,13 +167,95 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push multi-arch image
+      - name: Build + push single-arch image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: hx_agentic_sdk/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          file: Dockerfile.fast
+          platforms: ${{ matrix.platform }}
           push: true
+          provenance: false
           tags: |
+            ghcr.io/hawcx/hx-agent-sdk:${{ github.ref_name }}-${{ matrix.arch_suffix }}
+          cache-from: type=gha,scope=${{ matrix.arch_suffix }}
+          cache-to: type=gha,scope=${{ matrix.arch_suffix }},mode=max
+
+  docker_manifest:
+    name: docker multi-arch manifest
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create + push multi-arch manifest
+        run: |
+          docker buildx imagetools create \
+            -t ghcr.io/hawcx/hx-agent-sdk:${{ github.ref_name }} \
+            -t ghcr.io/hawcx/hx-agent-sdk:latest \
+            ghcr.io/hawcx/hx-agent-sdk:${{ github.ref_name }}-amd64 \
+            ghcr.io/hawcx/hx-agent-sdk:${{ github.ref_name }}-arm64
+
+      - name: Verify manifest
+        run: |
+          docker buildx imagetools inspect ghcr.io/hawcx/hx-agent-sdk:${{ github.ref_name }}
+
+  github_release:
+    name: create GitHub release
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release-assets
+          pattern: "hx-agent-sdk-*"
+          merge-multiple: true
+
+      - name: List downloaded assets (diagnostic)
+        run: ls -lah ./release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            HAAP SDK release ${{ github.ref_name }}.
+
+            ## Distribution
+
+            **Binary tarballs** (attached below):
+            - Linux x86_64 / aarch64
+            - macOS aarch64 (Apple Silicon)
+            - Windows x86_64 / aarch64
+
+            **Multi-arch Docker image**:
+            ```
             ghcr.io/hawcx/hx-agent-sdk:${{ github.ref_name }}
             ghcr.io/hawcx/hx-agent-sdk:latest
+            ```
+            Supports `linux/amd64` and `linux/arm64`.
+
+            ## Contents
+
+            **hx_labs binaries**: `haap-authenticator`, `haap-tqs-precompute`, `haap-tqs-jit`, `haap-assembler`, `haap-supervisor`
+
+            **SDK binaries**: `haap-rsv`, `haap-sdk`
+
+            ## Status
+
+            Pre-product alpha release. Customer evaluation only. Production deployment not yet recommended.
+
+            See [build workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for build details.
+          files: ./release-assets/**/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          fail_on_unmatched_files: false
