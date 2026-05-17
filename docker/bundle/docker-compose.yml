@@ -84,18 +84,12 @@ services:
       - HAAP_AUDIENCE_HASH=${HAAP_AUDIENCE_HASH}
       - HAAP_CUSTOMER_REDIS_URL=redis://redis:6379
       - HAAP_REPLAY_LRU_CAPACITY=${HAAP_REPLAY_LRU_CAPACITY:-10000}
-      - HAAP_SEALER_BACKEND=file
-      - HAAP_SEALER_FILE_PATH=/var/lib/haap/rsv/k_rs.sealed
-      - HAAP_SEALER_PASSPHRASE_ENV=HAAP_SEALER_PASSPHRASE
-      - HAAP_SEALER_PASSPHRASE=${HAAP_SEALER_PASSPHRASE}
       - RUST_LOG=${LOG_LEVEL:-info}
     ports:
       - "${RSV_PORT:-8443}:8443"
     depends_on:
       redis:
         condition: service_healthy
-    volumes:
-      - rsv_state:/var/lib/haap/rsv
     healthcheck:
       disable: true
     networks:
@@ -121,4 +115,3 @@ networks:
 volumes:
   caa_ipc:
   caa_state:
-  rsv_state:

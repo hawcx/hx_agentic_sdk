@@ -35,7 +35,6 @@ provisions for your tenant:
 | `HAWCX_IK_C` | Admin identity key (or `HAWCX_IK_C_FILE` path) |
 | `HAAP_BOOTSTRAP_OTRC` | One-time recovery credential for first-run enrollment |
 | `HAAP_AUDIENCE_HASH` | 32-byte hex audience hash registered with your AS |
-| `HAAP_SEALER_PASSPHRASE` | Passphrase for sealing K_RS at rest |
 
 Without these, the containers will start but fail to initialize. Contact your
 Hawcx representative for evaluation credentials.
@@ -128,8 +127,8 @@ The orchestrator can't reach the admin-auth process over the Unix socket.
 Verify the `caa_ipc` volume is mounted at `/var/run/hawcx` on both containers
 and that `caa-admin-auth` is running (`docker compose ps`).
 
-**RSV exits immediately:** Check `HAAP_AUDIENCE_HASH` (must be 64 hex chars)
-and `HAAP_SEALER_PASSPHRASE` are set.
+**RSV exits immediately:** Check `HAAP_AUDIENCE_HASH` is set to 64 hex chars
+and that Redis is reachable on the `hawcx-net` network.
 
 **Port conflicts:** Adjust `CAA_GRPC_PORT` / `RSV_PORT` in `.env`.
 
