@@ -5,17 +5,18 @@
 # arranges this; for local builds run `docker build -f hx_agentic_sdk/Dockerfile .`
 # from the parent directory containing both repos.
 
-FROM rust:1.85-slim-bookworm AS builder
-
-# Install build dependencies (protoc for tonic-generated code)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        protobuf-compiler \
-        pkg-config \
-        libssl-dev \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+FROM rust:1-bookworm AS builder
 
 WORKDIR /build
+
+# Build dependencies: protoc (tonic-build needs it for code generation).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        unzip curl ca-certificates && \
+    curl -fsSL -o /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protoc-25.1-linux-x86_64.zip && \
+    unzip -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*' && \
+    chmod +x /usr/local/bin/protoc && \
+    rm -rf /var/lib/apt/lists/* /tmp/*
 
 # Copy both repos so the SDK's path-deps to ../hx_labs resolve.
 COPY hx_labs /build/hx_labs
@@ -35,7 +36,7 @@ WORKDIR /build/hx_agentic_sdk
 RUN cargo build --release --bin haap-rsv --bin haap-sdk
 
 # Distroless runtime.
-FROM gcr.io/distroless/cc-debian12
+FROM gcr.io/distroless/cc-debian12 AS runtime
 
 COPY --from=builder /build/hx_labs/target/release/haap-authenticator /usr/local/bin/
 COPY --from=builder /build/hx_labs/target/release/haap-tqs-precompute /usr/local/bin/
